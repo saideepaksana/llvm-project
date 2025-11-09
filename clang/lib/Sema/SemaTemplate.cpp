@@ -8460,6 +8460,7 @@ Sema::CheckTemplateDeclScope(Scope *S, TemplateParameterList *TemplateParams) {
       Loc = D->getBeginLoc();
   }
 
+  // Try to extract class context if present.
   CXXRecordDecl *RD = Ctx ? dyn_cast<CXXRecordDecl>(Ctx) : nullptr;
   if (Loc.isInvalid() && RD)
     Loc = RD->getLocation();
@@ -8472,80 +8473,27 @@ Sema::CheckTemplateDeclScope(Scope *S, TemplateParameterList *TemplateParams) {
       // C++ [temp.mem]p2:
       //   A local class shall not have member templates.
       if (RD->isLocalClass()) {
-        // check if this is an abbreviated function template (C++20 auto params).
-        // If so, we want to emit the 'auto not allowed' diagnostic instead.
-        bool isAbbrev = false;
-
-        // find the enclosing function and check for auto parameters.
-        {
-          const Decl *d = dyn_cast<Decl>(Ctx);
-          const DeclContext *dc = d ? d->getDeclContext() : nullptr;
-          while (dc && !dc->isFunctionOrMethod())
-            dc = dc->getParent();
-
-          if (dc && dc->isFunctionOrMethod()) {
-            if (const FunctionDecl *fd = dyn_cast<FunctionDecl>(
-                    dc->getRedeclContext()->getPrimaryContext())) {
-              for (const ParmVarDecl *p : fd->parameters()) {
-                if (p && p->getType()->getAs<AutoType>()) {
-                  isAbbrev = true;
-                  break;
-                }
-              }
-            }
-
-            // check function templates in this context.
-            if (!isAbbrev) {
-              for (Decl *d : dc->decls()) {
-                if (const FunctionTemplateDecl *ftd = dyn_cast<FunctionTemplateDecl>(d)) {
-                  if (const FunctionDecl *fd = ftd->getTemplatedDecl()) {
-                    for (const ParmVarDecl *p : fd->parameters()) {
-                      if (p && p->getType()->getAs<AutoType>()) {
-                        isAbbrev = true;
-                        break;
-                      }
-                    }
-                    if (isAbbrev) break;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // fallback check methods of the local class itself.
-        if (!isAbbrev) {
-          for (const CXXMethodDecl *m : RD->methods()) {
-            for (const ParmVarDecl *p : m->parameters()) {
-              if (p && p->getType()->getAs<AutoType>()) {
-                isAbbrev = true;
-                break;
-              }
-            }
-            if (isAbbrev)
-              break;
-          }
-        }
-
+        // when the template location is not valid we are trying to use fallback SourceLocation such that diagnostic prints a usable file:line:col location
         if (Loc.isInvalid())
           Loc = TemplateParams->getSourceRange().getBegin();
 
-        if (isAbbrev)
-          return Diag(Loc, diag::err_auto_not_allowed);
-
         return Diag(Loc, diag::err_template_inside_local_class)
-            << TemplateParams->getSourceRange();
-      } else
+                 << TemplateParams->getSourceRange();
+      } 
+      else {
         return false;
+      }
     }
   }
 
+  // when teplate declared outside the namspace or class scope it Fallbacks and it give valid SourceLocation with file:line info.
   if (Loc.isInvalid())
     Loc = TemplateParams->getSourceRange().getBegin();
 
   return Diag(Loc, diag::err_template_outside_namespace_or_class_scope)
-      << TemplateParams->getSourceRange();
+           << TemplateParams->getSourceRange();
 }
+
 /// Determine what kind of template specialization the given declaration
 /// is.
 static TemplateSpecializationKind getTemplateSpecializationKind(Decl *D) {
